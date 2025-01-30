@@ -1,0 +1,189 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PDF to Images Converter</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: #f5f5f5;
+        }
+        .container {
+            background-color: white;
+            border-radius: 8px;
+            padding: 20px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        .upload-form {
+            border: 2px dashed #ccc;
+            padding: 20px;
+            border-radius: 8px;
+            text-align: center;
+            margin-bottom: 20px;
+            background-color: #fafafa;
+        }
+        .upload-form:hover {
+            border-color: #666;
+        }
+        .file-input {
+            margin: 20px 0;
+        }
+        .submit-btn {
+            background-color: #4CAF50;
+            color: white;
+            padding: 10px 20px;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 16px;
+            transition: background-color 0.3s;
+        }
+        .submit-btn:hover {
+            background-color: #45a049;
+        }
+        .submit-btn:disabled {
+            background-color: #cccccc;
+            cursor: not-allowed;
+        }
+        #preview {
+            margin-top: 20px;
+        }
+        .preview-image {
+            max-width: 100%;
+            margin: 10px 0;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+        }
+        .progress {
+            margin: 20px 0;
+            display: none;
+        }
+        .progress-bar {
+            width: 100%;
+            height: 20px;
+            background-color: #f0f0f0;
+            border-radius: 10px;
+            overflow: hidden;
+        }
+        .progress-fill {
+            height: 100%;
+            background-color: #4CAF50;
+            width: 0%;
+            transition: width 0.3s ease;
+        }
+        .status {
+            margin-top: 10px;
+            color: #666;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>PDF to Images Converter</h1>
+        <div class="upload-form">
+            <h2>Upload PDF File</h2>
+            <p>Select a PDF file to convert its pages to images</p>
+            <input type="file" id="pdfFile" accept=".pdf" class="file-input" required>
+            <br>
+            <button onclick="convertPDF()" class="submit-btn" id="convertBtn">Convert PDF</button>
+        </div>
+
+        <div class="progress">
+            <div class="progress-bar">
+                <div class="progress-fill"></div>
+            </div>
+            <div class="status">Processing page: <span id="currentPage">0</span> of <span id="totalPages">0</span></div>
+        </div>
+
+        <div id="preview"></div>
+    </div>
+
+    <script>
+        pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+
+        async function saveImage(blob, pdfName, pageNum) {
+            const formData = new FormData();
+            formData.append('image', blob, 'page.png');
+            formData.append('pdfName', pdfName);
+            formData.append('pageNum', pageNum);
+
+            try {
+                const response = await fetch('/save-image', {
+                    method: 'POST',
+                    body: formData
+                });
+                return await response.json();
+            } catch (error) {
+                console.error('Error saving image:', error);
+                throw error;
+            }
+        }
+
+        async function convertPDF() {
+            const fileInput = document.getElementById('pdfFile');
+            const convertBtn = document.getElementById('convertBtn');
+            const preview = document.getElementById('preview');
+            const progress = document.querySelector('.progress');
+            const progressFill = document.querySelector('.progress-fill');
+            const currentPageSpan = document.getElementById('currentPage');
+            const totalPagesSpan = document.getElementById('totalPages');
+
+            if (!fileInput.files.length) {
+                alert('Please select a PDF file first.');
+                return;
+            }
+
+            const file = fileInput.files[0];
+            convertBtn.disabled = true;
+            preview.innerHTML = '';
+            progress.style.display = 'block';
+
+            try {
+                const arrayBuffer = await file.arrayBuffer();
+                const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
+                const totalPages = pdf.numPages;
+                totalPagesSpan.textContent = totalPages;
+
+                for (let pageNum = 1; pageNum <= totalPages; pageNum++) {
+                    const page = await pdf.getPage(pageNum);
+                    const viewport = page.getViewport({ scale: 1.5 });
+
+                    const canvas = document.createElement('canvas');
+                    const context = canvas.getContext('2d');
+                    canvas.height = viewport.height;
+                    canvas.width = viewport.width;
+
+                    await page.render({
+                        canvasContext: context,
+                        viewport: viewport
+                    }).promise;
+
+                    // Convert canvas to blob and save to server
+                    const blob = await new Promise(resolve => canvas.toBlob(resolve, 'image/png'));
+                    await saveImage(blob, file.name, pageNum);
+
+                    const img = document.createElement('img');
+                    img.src = canvas.toDataURL('image/png');
+                    img.className = 'preview-image';
+                    preview.appendChild(img);
+
+                    currentPageSpan.textContent = pageNum;
+                    progressFill.style.width = `${(pageNum / totalPages) * 100}%`;
+                }
+
+                alert('PDF conversion completed! Images have been saved.');
+                convertBtn.disabled = false;
+            } catch (error) {
+                console.error('Error converting PDF:', error);
+                alert('Error converting PDF. Please try again.');
+                convertBtn.disabled = false;
+            }
+        }
+    </script>
+</body>
+</html>
